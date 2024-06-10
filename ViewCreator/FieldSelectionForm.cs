@@ -12,6 +12,7 @@ namespace ViewCreator
         private string connectionString;
         private string selectedDatabase;
         private List<string> selectedTables;
+
         public FieldSelectionForm(string connectionString, string selectedDatabase, List<string> selectedTables)
         {
             InitializeComponent();
@@ -21,195 +22,198 @@ namespace ViewCreator
             LoadFields();
             LoadFunctions();
         }
+
         private void LoadFields()
         {
             try
             {
-                // Concatenar los nombres de las tablas seleccionadas para la consulta SQL
-                string tables = string.Join(",", selectedTables);
-
-                using (SqlConnection connection = new SqlConnection(connectionString))
-                {
-                    connection.Open();
-                    string tabless = string.Join(",", selectedTables);
-                    string tableNames = string.Join(",", selectedTables.Select(tableName => $"'{tableName}'"));
-
-                    string query = $"SELECT COLUMN_NAME FROM {selectedDatabase}.INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME IN ({tableNames})";
-                    SqlDataAdapter adapter = new SqlDataAdapter(query, connection);
-                    DataTable fields = new DataTable();
-                    adapter.Fill(fields);
-
-                    // Agregar los campos al ListBox
-                    foreach (DataRow row in fields.Rows)
-                    {
-                        lstFields.Items.Add(row["COLUMN_NAME"]);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al cargar los campos: {ex.GetType().Name}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void LoadFunctions()
-        {
-            // Agregar las funciones disponibles al ComboBox
-            cmbFunctions.Items.Add("SUM");
-            cmbFunctions.Items.Add("AVG");
-            cmbFunctions.Items.Add("COUNT");
-            cmbFunctions.Items.Add("MAX");
-            cmbFunctions.Items.Add("MIN");
-            cmbFunctions.Items.Add("CONCAT");
-        }
-
-        private void btnAddField_Click(object sender, EventArgs e)
-        {
-            // Verificar si se seleccionó un campo
-            if (lstFields.SelectedItem != null)
-            {
-                // Agregar el campo seleccionado a los campos seleccionados
-                lstSelectedFields.Items.Add(lstFields.SelectedItem.ToString());
-            }
-            else
-            {
-                MessageBox.Show("Por favor, seleccione un campo.", "Advertencia", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        }
-
-        private void btnCreateView_Click(object sender, EventArgs e)
-        {
-            if (lstSelectedFields.Items.Count > 0 && cmbFunctions.SelectedItem != null)
-            {
-                try
-                {
-                    string selectedFunction = cmbFunctions.SelectedItem.ToString();
-                    List<string> selectedFields = lstSelectedFields.Items.Cast<string>().ToList();
-
-                    // Crear la vista con los campos seleccionados y la función seleccionada
-                    CreateView(selectedFields, selectedFunction);
-
-                    // Mostrar el formulario de confirmación
-                    //ViewConfirmationForm confirmationForm = new ViewConfirmationForm(selectedFields, selectedFunction);
-                    //confirmationForm.ShowDialog(); // Mostrar el formulario como cuadro de diálogo
-
-                    // Opcional: cerrar este formulario si deseas que se cierre automáticamente después de crear la vista
-                    // this.Close();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error al crear la vista: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            else
-            {
-                MessageBox.Show("Por favor, seleccione al menos un campo y una función.", "Advertencia", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        }
-        private void CreateView(List<string> selectedFields, string selectedFunction)
-        {
-            try
-            {
-                // Construir el nombre de la vista
-                string viewName = "VW_DIM_" + selectedTables.First() + "_" + selectedFunction.ToUpper();
-
-                // Construir la lista de campos para la consulta SELECT
-                string fieldsList = string.Join(", ", selectedFields.Select(field => $"[{field}]"));
-
-                // Consultar la estructura de las tablas seleccionadas
-                Dictionary<string, List<string>> tableStructures = new Dictionary<string, List<string>>();
                 using (SqlConnection connection = new SqlConnection(connectionString))
                 {
                     connection.Open();
                     foreach (string tableName in selectedTables)
                     {
-                        // Consultar las columnas de la tabla
-                        string queryColumns = $"SELECT COLUMN_NAME FROM {selectedDatabase}.INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{tableName}'";
-                        SqlCommand commandColumns = new SqlCommand(queryColumns, connection);
-                        using (SqlDataReader readerColumns = commandColumns.ExecuteReader())
+                        string query = $"SELECT COLUMN_NAME FROM {selectedDatabase}.INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @TableName";
+                        SqlCommand command = new SqlCommand(query, connection);
+                        command.Parameters.AddWithValue("@TableName", tableName);
+
+                        SqlDataAdapter adapter = new SqlDataAdapter(command);
+                        DataTable fields = new DataTable();
+                        adapter.Fill(fields);
+
+                        foreach (DataRow row in fields.Rows)
                         {
-                            List<string> columns = new List<string>();
-                            while (readerColumns.Read())
-                            {
-                                columns.Add(readerColumns.GetString(0));
-                            }
-                            tableStructures.Add(tableName, columns);
+                            lstFields.Items.Add(row["COLUMN_NAME"].ToString());
                         }
                     }
                 }
+            }
+            catch (SqlException ex)
+            {
+                MessageBox.Show($"Error SQL: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
 
-                // Crear las tablas si no existen
-                foreach (var pair in tableStructures)
+        private void LoadFunctions()
+        {
+            cmbFunctions.Items.AddRange(new string[] { "None", "SUM", "AVG", "COUNT", "MAX", "MIN", "CONCAT" });
+        }
+
+        private void btnAddField_Click(object sender, EventArgs e)
+        {
+            if (lstFields.SelectedItems.Count > 0)
+            {
+                foreach (var selectedItem in lstFields.SelectedItems)
                 {
-                    string tableName = pair.Key;
-                    List<string> columns = pair.Value;
+                    // Acceder al texto del campo seleccionado y agregarlo a lstSelectedFields
+                    string fieldName = selectedItem.ToString();
+                    lstSelectedFields.Items.Add(fieldName);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Por favor, seleccione al menos un campo.", "Advertencia", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
 
-                    if (!TableExists(viewName, columns))
+        private void btnCreateView_Click(object sender, EventArgs e)
+        {
+            if (lstSelectedFields.Items.Count > 0)
+            {
+                // Generar el nombre de la tabla combinando los nombres de las tablas seleccionadas
+                string tableName = GenerateTableName();
+
+                // Crear una nueva base de datos
+                string newDatabaseName = $"{selectedDatabase}_Copy";
+                CreateDatabase(newDatabaseName);
+
+                // Crear la tabla en la nueva base de datos
+                CreateTable(newDatabaseName, tableName);
+
+                // Crear una lista para almacenar los nombres de los campos seleccionados
+                List<string> selectedFields = new List<string>();
+
+                // Obtener los nombres de los campos seleccionados en lstSelectedFields
+                foreach (ListViewItem selectedItem in lstSelectedFields.Items)
+                {
+                    selectedFields.Add(selectedItem.Text);
+                }
+
+                // Agregar las columnas a la tabla
+                AddColumns(newDatabaseName, tableName, selectedFields);
+
+                // Insertar datos en la nueva tabla desde las tablas originales
+                InsertDataFromOriginalTables(newDatabaseName, tableName, selectedFields);
+
+                MessageBox.Show("La tabla se ha creado correctamente y los datos se han conservado.", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show("Por favor, seleccione al menos un campo.", "Advertencia", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private string GenerateTableName()
+        {
+            // Combinar los nombres de las tablas seleccionadas
+            string combinedTableName = string.Join("_", selectedTables.Select(t => t.Replace(".", "_")));
+
+            // Construir el nombre de la tabla con el prefijo "VM_DIM_"
+            return $"VM_DIM_{combinedTableName}";
+        }
+
+        private void CreateDatabase(string databaseName)
+        {
+            try
+            {
+                using (SqlConnection connection = new SqlConnection(connectionString))
+                {
+                    connection.Open();
+                    // Eliminar la base de datos si ya existe
+                    DropDatabase(databaseName, connection);
+                    SqlCommand command = new SqlCommand($"CREATE DATABASE {databaseName}", connection);
+                    command.ExecuteNonQuery();
+                }
+            }
+            catch (SqlException ex)
+            {
+                MessageBox.Show($"Error SQL: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void DropDatabase(string databaseName, SqlConnection connection)
+        {
+            SqlCommand command = new SqlCommand($"IF EXISTS (SELECT 1 FROM sys.databases WHERE name = '{databaseName}') DROP DATABASE {databaseName}", connection);
+            command.ExecuteNonQuery();
+        }
+
+        private void CreateTable(string databaseName, string tableName)
+        {
+            try
+            {
+                using (SqlConnection connection = new SqlConnection(connectionString))
+                {
+                    connection.Open();
+                    string query = $"CREATE TABLE {databaseName}.dbo.{tableName} (ID INT IDENTITY(1,1) PRIMARY KEY)";
+                    ExecuteNonQuery(query, connection);
+                }
+            }
+            catch (SqlException ex)
+            {
+                MessageBox.Show($"Error SQL: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void AddColumns(string databaseName, string tableName, List<string> columnNames)
+        {
+            foreach (string columnName in columnNames)
+            {
+                try
+                {
+                    using (SqlConnection connection = new SqlConnection(connectionString))
                     {
-                        CreateTable(tableName, columns);
+                        connection.Open();
+                        string query = $"ALTER TABLE {databaseName}.dbo.{tableName} ADD {columnName} NVARCHAR(255)";
+                        ExecuteNonQuery(query, connection);
                     }
                 }
-
-                // Construir la consulta SQL para crear la vista
-                string query = $"CREATE VIEW {viewName} AS " +
-                               $"SELECT {selectedFunction}({fieldsList}) AS [{selectedFunction}] FROM {selectedTables.First()}";
-
-                // Ejecutar la consulta en la base de datos
-                using (SqlConnection connection = new SqlConnection(connectionString))
+                catch (SqlException ex)
                 {
-                    connection.Open();
-                    SqlCommand command = new SqlCommand(query, connection);
-                    command.ExecuteNonQuery();
+                    MessageBox.Show($"Error SQL: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
-
-                MessageBox.Show("La vista se ha creado correctamente.", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al crear la vista: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-        private bool TableExists(string tableName, List<string> columns)
-        {
-            try
-            {
-                using (SqlConnection connection = new SqlConnection(connectionString))
-                {
-                    connection.Open();
-                    // Consultar si la tabla ya existe en la base de datos
-                    string query = $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '{tableName}'";
-                    SqlCommand command = new SqlCommand(query, connection);
-                    int count = Convert.ToInt32(command.ExecuteScalar());
-                    return count > 0;
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al verificar la existencia de la tabla: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
             }
         }
 
-        private void CreateTable(string tableName, List<string> columns)
+        private void InsertDataFromOriginalTables(string newDatabaseName, string newTableName, List<string> selectedFields)
         {
-            try
+            foreach (string originalTableName in selectedTables)
             {
-                using (SqlConnection connection = new SqlConnection(connectionString))
+                foreach (string field in selectedFields)
                 {
-                    connection.Open();
-                    // Construir la consulta SQL para crear la tabla
-                    string columnsDefinition = string.Join(", ", columns.Select(column => $"{column} VARCHAR(255)"));
-                    string query = $"CREATE TABLE {tableName} ({columnsDefinition})";
-                    SqlCommand command = new SqlCommand(query, connection);
-                    command.ExecuteNonQuery();
+                    try
+                    {
+                        using (SqlConnection connection = new SqlConnection(connectionString))
+                        {
+                            connection.Open();
+                            string query = $"INSERT INTO {newDatabaseName}.dbo.{newTableName} ({field}) SELECT {field} FROM {selectedDatabase}.dbo.{originalTableName}";
+                            ExecuteNonQuery(query, connection);
+                        }
+                    }
+                    catch (SqlException ex)
+                    {
+                        MessageBox.Show($"Error SQL: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
-                MessageBox.Show($"La tabla {tableName} se ha creado correctamente.", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al crear la tabla {tableName}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+        }
+
+        private void ExecuteNonQuery(string query, SqlConnection connection)
+        {
+            SqlCommand command = new SqlCommand(query, connection);
+            command.ExecuteNonQuery();
         }
     }
-    }
-
+}
